@@ -1,0 +1,104 @@
+<script setup>
+import { useLayoutStore } from '@/stores/layout';
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+
+const layout = useLayoutStore();
+const route = useRoute();
+
+const props = defineProps({
+    item: {
+        type: Object,
+        default: () => ({})
+    },
+    root: {
+        type: Boolean,
+        default: true
+    },
+    parentPath: {
+        type: String,
+        default: null
+    }
+});
+
+const fullPath = computed(() => (props.item.path ? (props.parentPath ? props.parentPath + props.item.path : props.item.path) : null));
+
+const isActive = computed(() => {
+    return props.item.path ? layout.ui.activePath?.startsWith(fullPath.value) : layout.ui.activePath === props.item.to;
+});
+
+// Keep a leaf item highlighted on its nested routes (e.g. /settings/profile); '/' only matches exactly.
+const isRouteActive = computed(() => !!props.item.to && props.item.to !== '/' && route.path.startsWith(props.item.to + '/'));
+
+const itemClick = (event, item) => {
+    if (item.disabled) {
+        event.preventDefault();
+        return;
+    }
+
+    if (item.command) {
+        item.command({ originalEvent: event, item: item });
+    }
+
+    if (item.items) {
+        if (isActive.value) {
+            layout.ui.activePath = layout.ui.activePath.replace(item.path, '');
+        } else {
+            layout.ui.activePath = fullPath.value;
+            layout.ui.menuHoverActive = true;
+        }
+    } else {
+        layout.ui.overlayMenuActive = false;
+        layout.ui.mobileMenuActive = false;
+        layout.ui.menuHoverActive = false;
+
+        if (layout.hasOverlaySubmenu && layout.isDesktop()) {
+            layout.ui.activePath = null;
+        }
+    }
+};
+
+const onMouseEnter = () => {
+    if (layout.isDesktop() && props.root && props.item.items && layout.ui.menuHoverActive && !isActive.value) {
+        layout.ui.activePath = fullPath.value;
+    }
+};
+</script>
+
+<template>
+    <li :class="{ 'layout-root-menuitem': root, 'active-menuitem': isActive }">
+        <div v-if="root && item.visible !== false" class="layout-menuitem-root-text">{{ item.label }}</div>
+        <a
+            v-if="(!item.to || item.items) && item.visible !== false"
+            :href="item.url"
+            @click="itemClick($event, item)"
+            :class="item.class"
+            :target="item.target"
+            tabindex="0"
+            @mouseenter="onMouseEnter"
+            v-tooltip.hover="layout.isSlim && root && !isActive ? item.label : null"
+        >
+            <i :class="item.icon" class="layout-menuitem-icon" />
+            <span class="layout-menuitem-text">{{ item.label }}</span>
+            <i class="pi pi-fw pi-angle-down layout-submenu-toggler" v-if="item.items" />
+        </a>
+        <router-link
+            v-if="item.to && !item.items && item.visible !== false"
+            @click="itemClick($event, item)"
+            exactActiveClass="active-route"
+            :class="[item.class, { 'active-route': isRouteActive }]"
+            tabindex="0"
+            :to="item.to"
+            @mouseenter="onMouseEnter"
+            v-tooltip.hover="layout.isSlim && root && !isActive ? item.label : null"
+        >
+            <i :class="item.icon" class="layout-menuitem-icon" />
+            <span class="layout-menuitem-text">{{ item.label }}</span>
+            <i class="pi pi-fw pi-angle-down layout-submenu-toggler" v-if="item.items" />
+        </router-link>
+
+        <ul :class="{ 'layout-root-submenulist': root }" v-if="item.items && item.visible !== false">
+            <app-menu-item v-for="child in item.items" :key="child.label + '_' + (child.to || child.path)" :item="child" :root="false" :parentPath="fullPath" />
+        </ul>
+    </li>
+</template>

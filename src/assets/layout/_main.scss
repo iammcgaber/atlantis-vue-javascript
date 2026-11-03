@@ -1,0 +1,84 @@
+* {
+    box-sizing: border-box;
+}
+
+html {
+    height: 100%;
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+body {
+    font-weight: 400;
+    padding: 0;
+    margin: 0;
+    min-height: 100%;
+    color: var(--text-color);
+    font-family: 'Inter var', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-variation-settings: normal;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+    text-decoration: none;
+}
+
+.layout-wrapper {
+    background: var(--body-bg);
+    min-height: 100vh;
+    
+    &:before {
+        min-height: 100vh;
+        height: 100%;
+        width: 100%;
+        content: '';
+        z-index: 0;
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        background-image: var(--body-image);
+        background-repeat: no-repeat;
+        z-index: 0;
+    }
+
+    .layout-content-wrapper {
+        position: relative;
+        z-index: 1;
+        overflow-x: hidden;
+    }
+}
+
+// Keyboard focus for the layout's own links and buttons (sidebar menu, logo, topbar), which Atlantis styles without
+// one. PrimeVue components draw their own ring from the same tokens.
+.layout-sidebar,
+.layout-topbar {
+    a,
+    button {
+        &:focus-visible {
+            outline: var(--p-focus-ring-width) var(--p-focus-ring-style) var(--p-focus-ring-color);
+            outline-offset: calc(-1 * var(--p-focus-ring-width));
+        }
+    }
+}
+
+// "Skip to content" link: first in the tab order, only visible while focused.
+.skip-link {
+    position: fixed;
+    top: 0.5rem;
+    inset-inline-start: 0.5rem;
+    z-index: 1100;
+    padding: 0.5rem 1rem;
+    border-radius: var(--p-content-border-radius);
+    background: var(--p-content-background);
+    color: var(--p-text-color);
+    font-weight: 600;
+    transform: translateY(-200%);
+
+    &:focus-visible {
+        transform: none;
+        outline: var(--p-focus-ring-width) var(--p-focus-ring-style) var(--p-focus-ring-color);
+    }
+}

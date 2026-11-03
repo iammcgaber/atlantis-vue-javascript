@@ -1,0 +1,17 @@
+node_modules
+coverage
+*.log*
+.nuxt
+.nitro
+.cache
+.output
+.env
+dist
+.DS_Store
+.idea
+.eslintcache
+**/.DS_Store
+components.d.ts
+original_template
+# Test reports (e.g. vitest.json for RWX)
+tmp/

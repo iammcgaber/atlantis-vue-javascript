@@ -1,0 +1,295 @@
+import { getPresetExt, loadPreset, surfaces } from '@/layout/theme';
+import Aura from '@primeuix/themes/aura';
+import Lara from '@primeuix/themes/lara';
+import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLayoutStore } from '../layout';
+
+const theme = vi.hoisted(() => {
+    const chain = {};
+    chain.preset = vi.fn(() => chain);
+    chain.surfacePalette = vi.fn(() => chain);
+    chain.use = vi.fn(() => chain);
+
+    return { chain, $t: vi.fn(() => chain), updatePreset: vi.fn(), updateSurfacePalette: vi.fn() };
+});
+
+vi.mock('@primeuix/themes', () => ({
+    $t: theme.$t,
+    updatePreset: theme.updatePreset,
+    updateSurfacePalette: theme.updateSurfacePalette
+}));
+
+function setViewportWidth(width) {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+}
+
+// Each test's stores are stopped afterwards: a live store from an earlier test would otherwise react to this
+// test's localStorage writes (useStorage syncs every store instance) and apply its own theme.
+const pinias = [];
+function freshPinia() {
+    const pinia = createPinia();
+    pinias.push(pinia);
+    setActivePinia(pinia);
+}
+
+describe('layout store', () => {
+    let layout;
+
+    beforeEach(() => {
+        localStorage.clear();
+        vi.clearAllMocks();
+        document.documentElement.className = '';
+        delete document.startViewTransition;
+        setViewportWidth(1280);
+        freshPinia();
+        layout = useLayoutStore();
+    });
+
+    afterEach(() => {
+        delete document.startViewTransition;
+        for (const pinia of pinias.splice(0)) pinia._e.stop();
+    });
+
+    it('has default appearance and closed UI', () => {
+        expect(layout.config).toEqual({ preset: 'Aura', primary: 'emerald', surface: null, darkTheme: true, menuMode: 'static' });
+        expect(layout.ui.mobileMenuActive).toBe(false);
+        expect(layout.ui.profileSidebarVisible).toBe(false);
+    });
+
+    describe('toggleMenu', () => {
+        it('closeMenuOverlay closes the mobile or overlay menu and says whether it was open', () => {
+            expect(layout.closeMenuOverlay()).toBe(false);
+
+            layout.ui.mobileMenuActive = true;
+            layout.ui.overlayMenuActive = true;
+            expect(layout.closeMenuOverlay()).toBe(true);
+            expect(layout.ui.mobileMenuActive).toBe(false);
+            expect(layout.ui.overlayMenuActive).toBe(false);
+        });
+
+        it('collapses the static menu on desktop', () => {
+            layout.toggleMenu();
+            expect(layout.ui.staticMenuInactive).toBe(true);
+
+            layout.toggleMenu();
+            expect(layout.ui.staticMenuInactive).toBe(false);
+        });
+
+        it('opens the overlay menu in overlay mode', () => {
+            layout.setMenuMode('overlay', '/');
+            layout.toggleMenu();
+
+            expect(layout.ui.overlayMenuActive).toBe(true);
+            expect(layout.ui.staticMenuInactive).toBe(false);
+        });
+
+        it('opens the mobile menu below the desktop breakpoint', () => {
+            setViewportWidth(800);
+            layout.toggleMenu();
+
+            expect(layout.ui.mobileMenuActive).toBe(true);
+            expect(layout.ui.staticMenuInactive).toBe(false);
+        });
+    });
+
+    it('hideMobileMenu closes the mobile menu', () => {
+        layout.ui.mobileMenuActive = true;
+        layout.hideMobileMenu();
+
+        expect(layout.ui.mobileMenuActive).toBe(false);
+    });
+
+    it('toggleProfileSidebar opens and closes the drawer', () => {
+        layout.toggleProfileSidebar();
+        expect(layout.ui.profileSidebarVisible).toBe(true);
+
+        layout.toggleProfileSidebar();
+        expect(layout.ui.profileSidebarVisible).toBe(false);
+    });
+
+    describe('setMenuMode', () => {
+        it('resets open menus and tracks the current path for inline submenus', () => {
+            Object.assign(layout.ui, { staticMenuInactive: true, overlayMenuActive: true, mobileMenuActive: true, anchored: true });
+
+            layout.setMenuMode('static', '/settings/profile');
+
+            expect(layout.config.menuMode).toBe('static');
+            expect(layout.ui).toMatchObject({ staticMenuInactive: false, overlayMenuActive: false, mobileMenuActive: false, anchored: false, activePath: '/settings/profile' });
+        });
+
+        it('clears the active path for modes with overlay submenus', () => {
+            layout.setMenuMode('slim', '/settings');
+
+            expect(layout.ui.activePath).toBeNull();
+            expect(layout.hasOverlaySubmenu).toBe(true);
+        });
+
+        it('keeps inline submenus in drawer mode', () => {
+            layout.setMenuMode('drawer', '/settings');
+
+            expect(layout.ui.activePath).toBe('/settings');
+            expect(layout.hasOverlaySubmenu).toBe(false);
+        });
+    });
+
+    describe('getters', () => {
+        it('reflect the menu mode', () => {
+            layout.setMenuMode('horizontal', '/');
+            expect(layout.isHorizontal).toBe(true);
+            expect(layout.isSlim).toBe(false);
+
+            layout.setMenuMode('slim-plus', '/');
+            expect(layout.isSlimPlus).toBe(true);
+        });
+
+        it('hasOpenOverlaySubmenu ignores the root path', () => {
+            layout.setMenuMode('slim', '/');
+
+            layout.ui.activePath = '/';
+            expect(layout.hasOpenOverlaySubmenu).toBe(false);
+
+            layout.ui.activePath = '/menu';
+            expect(layout.hasOpenOverlaySubmenu).toBe(true);
+            expect(layout.hasOpenOverlay).toBe(true);
+        });
+
+        it('hasOpenOverlay is true when the overlay menu is open', () => {
+            layout.ui.overlayMenuActive = true;
+
+            expect(layout.hasOpenOverlay).toBe(true);
+        });
+    });
+
+    describe('setDarkTheme', () => {
+        it('updates config and the app-dark class', () => {
+            layout.setDarkTheme(false);
+
+            expect(layout.config.darkTheme).toBe(false);
+            expect(layout.isDarkTheme).toBe(false);
+            expect(document.documentElement.classList.contains('app-dark')).toBe(false);
+
+            layout.setDarkTheme(true);
+            expect(document.documentElement.classList.contains('app-dark')).toBe(true);
+        });
+
+        it('animates with a view transition when the browser supports it', () => {
+            document.startViewTransition = vi.fn((callback) => callback());
+
+            layout.setDarkTheme(false);
+
+            expect(document.startViewTransition).toHaveBeenCalledOnce();
+            expect(layout.config.darkTheme).toBe(false);
+        });
+
+        it('does nothing when the value is unchanged', () => {
+            document.startViewTransition = vi.fn((callback) => callback());
+
+            layout.setDarkTheme(true);
+
+            expect(document.startViewTransition).not.toHaveBeenCalled();
+        });
+    });
+
+    it('setPrimary stores the color and applies its preset extension', () => {
+        layout.setPrimary('blue');
+
+        expect(layout.config.primary).toBe('blue');
+        expect(theme.updatePreset).toHaveBeenCalledWith(getPresetExt('blue'));
+    });
+
+    it('setSurface stores the surface and applies its palette', () => {
+        layout.setSurface('zinc');
+
+        expect(layout.config.surface).toBe('zinc');
+        expect(theme.updateSurfacePalette).toHaveBeenCalledWith(surfaces.find((surface) => surface.name === 'zinc').palette);
+    });
+
+    it('setPreset rebuilds the theme from the chosen preset', async () => {
+        await layout.setPreset('Lara');
+
+        expect(layout.config.preset).toBe('Lara');
+        expect(theme.chain.preset).toHaveBeenNthCalledWith(1, Lara);
+        expect(theme.chain.use).toHaveBeenCalledWith({ useDefaultOptions: true });
+    });
+
+    it('applyTheme restores a saved theme, including dark mode', async () => {
+        localStorage.setItem('app.layout.config', JSON.stringify({ preset: 'Lara', primary: 'rose', surface: 'stone', darkTheme: true }));
+        freshPinia();
+
+        await useLayoutStore().applyTheme();
+
+        expect(document.documentElement.classList.contains('app-dark')).toBe(true);
+        expect(theme.chain.preset).toHaveBeenNthCalledWith(1, Lara);
+        expect(theme.chain.preset).toHaveBeenNthCalledWith(2, getPresetExt('rose'));
+        expect(theme.chain.surfacePalette).toHaveBeenCalledWith(surfaces.find((surface) => surface.name === 'stone').palette);
+    });
+
+    it('applyTheme falls back to Aura for an unknown saved preset', async () => {
+        localStorage.setItem('app.layout.config', JSON.stringify({ preset: 'Removed' }));
+        freshPinia();
+
+        await useLayoutStore().applyTheme();
+
+        expect(theme.chain.preset).toHaveBeenNthCalledWith(1, Aura);
+    });
+
+    it('applies only the last preset when switching again before the first one loads', async () => {
+        await Promise.all([layout.setPreset('Lara'), layout.setPreset('Aura')]);
+
+        expect(theme.$t).toHaveBeenCalledTimes(1);
+        expect(theme.chain.preset).toHaveBeenNthCalledWith(1, Aura);
+    });
+
+    it('loadPreset resolves each preset by name', async () => {
+        expect(await loadPreset('Lara')).toBe(Lara);
+        expect(await loadPreset('Removed')).toBe(Aura);
+    });
+
+    it('persists appearance but not transient UI state', async () => {
+        layout.setMenuMode('slim', '/');
+        layout.toggleProfileSidebar();
+        await nextTick();
+
+        const saved = JSON.parse(localStorage.getItem('app.layout.config'));
+        expect(saved.menuMode).toBe('slim');
+        expect(saved).not.toHaveProperty('profileSidebarVisible');
+
+        freshPinia();
+        const reloaded = useLayoutStore();
+
+        expect(reloaded.config.menuMode).toBe('slim');
+        expect(reloaded.ui.profileSidebarVisible).toBe(false);
+    });
+
+    // Regression: another tab's change updated `config` but not the applied theme.
+    describe('changes from another tab', () => {
+        function changeInOtherTab(config) {
+            const newValue = JSON.stringify({ ...layout.config, ...config });
+            localStorage.setItem('app.layout.config', newValue);
+            window.dispatchEvent(new StorageEvent('storage', { key: 'app.layout.config', newValue, storageArea: localStorage }));
+        }
+
+        it('reapplies the theme once PrimeVue is set up', async () => {
+            await layout.applyTheme();
+            vi.clearAllMocks();
+
+            changeInOtherTab({ darkTheme: false, primary: 'blue' });
+            await vi.waitFor(() => expect(theme.chain.use).toHaveBeenCalled());
+
+            expect(layout.config.darkTheme).toBe(false);
+            expect(document.documentElement.classList.contains('app-dark')).toBe(false);
+            expect(theme.chain.preset).toHaveBeenCalledWith(getPresetExt('blue'));
+        });
+
+        it('leaves the theme alone before the first applyTheme()', async () => {
+            changeInOtherTab({ darkTheme: false, primary: 'blue' });
+            await nextTick();
+            await nextTick();
+
+            expect(theme.chain.use).not.toHaveBeenCalled();
+            expect(theme.updatePreset).not.toHaveBeenCalled();
+        });
+    });
+});
